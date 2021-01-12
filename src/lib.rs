@@ -205,7 +205,6 @@ fn steering(
 
                     activations.into_iter().map(|a| solution[a] as f32).collect()
                 });
-                println!("{:?}", firing);
 
                 for ((position, thrust_vector, max_thrust), firing) in
                     engines.as_ref().unwrap().iter().zip(firing)
