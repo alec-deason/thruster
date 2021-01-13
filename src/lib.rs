@@ -22,6 +22,7 @@ impl Plugin for ThrusterPlugin {
         }
         app
             .register_type::<Engine>()
+            .add_event::<EngineEvent>()
             .add_stage_after(stage::UPDATE, "update_steering", SystemStage::parallel())
             .add_system_to_stage("update_steering", invalidate_caches.system())
             .add_system_to_stage("update_steering", steering.system());
@@ -35,10 +36,20 @@ impl Default for ThrustScale {
     }
 }
 
-#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 pub struct SubEngine {
+    pub offset: Vec2,
     pub thrust_vector: Vec2,
     pub max_thrust: f32,
+}
+impl Default for SubEngine {
+    fn default() -> Self {
+        Self {
+            offset: Vec2::splat(0.0),
+            thrust_vector: Vec2::new(0.0, 1.0),
+            max_thrust: 1.0,
+        }
+    }
 }
 bevy::reflect::impl_reflect_value!(SubEngine);
 #[derive(Reflect, Default, Debug)]
@@ -50,7 +61,8 @@ pub struct Steering {
     pub desired_torque: f32,
     last_seen_com: Vec2,
     firings_cache: HashMap<(i32, i32, i32), Vec<f32>>,
-    engines: Option<Vec<(Vec2, Vec2, f32)>>,
+    engines: Option<Vec<(Vec2, Vec2, f32, (Entity, usize))>>,
+    currently_firing: HashSet<(Entity, usize)>,
 }
 
 impl Steering {
@@ -63,6 +75,7 @@ impl Steering {
 fn steering(
     thrust_scale: Res<ThrustScale>,
     mut body_set: ResMut<RigidBodySet>,
+    mut engine_events: ResMut<Events<EngineEvent>>,
     mut parent_query: Query<(
         Entity,
         &GlobalTransform,
@@ -75,6 +88,7 @@ fn steering(
     for (parent, parent_transform, mut steering, body_handle, maybe_children) in
         parent_query.iter_mut()
     {
+        let mut just_fired = Vec::with_capacity(steering.currently_firing.len());
         if steering.desired_force != Vec2::splat(0.0) || steering.desired_torque != 0.0 {
             if let Some(body) = body_set.get_mut(body_handle.handle()) {
                 if steering.engines.is_none() {
@@ -92,14 +106,15 @@ fn steering(
                             } else {
                                 *transform
                             };
-                            for sub_engine in &engine.0 {
+                            for (i, sub_engine) in engine.0.iter().enumerate() {
                                 engines.push((
-                                    transform.translation.truncate(),
+                                    transform.translation.truncate() + sub_engine.offset,
                                     transform
                                         .rotation
                                         .mul_vec3(sub_engine.thrust_vector.extend(0.0))
                                         .truncate(),
                                     sub_engine.max_thrust,
+                                    (e, i),
                                 ));
                             }
                         }
@@ -126,6 +141,7 @@ fn steering(
                     ref mut firings_cache,
                     desired_force,
                     desired_torque,
+                    ref mut currently_firing,
                     ..
                 } = &mut *steering;
                 let firing = firings_cache.entry(key).or_insert_with(|| {
@@ -153,7 +169,7 @@ fn steering(
                     let fuel_consumption_weight = 0.0001;
                     let desire = *desired_force * total_thrust;
 
-                    for (engine_position, thrust_vector, max_thrust) in engines.as_ref().unwrap() {
+                    for (engine_position, thrust_vector, max_thrust, _event_key) in engines.as_ref().unwrap() {
                         let distance_to_com = *engine_position - center_of_mass;
                         let torque =
                             distance_to_com.extend(0.0).cross(thrust_vector.extend(0.0)).z * torque_weight;
@@ -206,10 +222,11 @@ fn steering(
                     activations.into_iter().map(|a| solution[a] as f32).collect()
                 });
 
-                for ((position, thrust_vector, max_thrust), firing) in
+                for ((position, thrust_vector, max_thrust, event_key), firing) in
                     engines.as_ref().unwrap().iter().zip(firing)
                 {
                     if *firing > 0.0 {
+                        just_fired.push((event_key.0, event_key.1, *firing));
                         let p = parent_transform.mul_vec3(position.extend(0.0));
                         let p = Point::new(p.x, p.y);
                         let thrust_vector = parent_transform
@@ -225,6 +242,18 @@ fn steering(
                 }
             }
         }
+        let mut new_current = HashSet::new();
+
+        for (e, i, f) in just_fired {
+            new_current.insert((e,i));
+            if !steering.currently_firing.contains(&(e, i)) {
+                engine_events.send(EngineEvent::StartedFiring(e, i, f));
+            }
+        }
+        for (e, i) in steering.currently_firing.difference(&new_current) {
+            engine_events.send(EngineEvent::StoppedFiring(*e, *i));
+        }
+        steering.currently_firing = new_current;
     }
 }
 
@@ -244,6 +273,21 @@ fn invalidate_caches(
         if let Ok(mut steering) = steering_query.get_mut(entity) {
             steering.firings_cache.clear();
             steering.engines.take();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum EngineEvent {
+    StartedFiring(Entity, usize, f32),
+    StoppedFiring(Entity, usize),
+}
+
+impl EngineEvent {
+    pub fn engine(&self) -> (Entity, usize) {
+        match self {
+            EngineEvent::StartedFiring(e, i, ..) |
+            EngineEvent::StoppedFiring(e, i, ..) => (*e, *i),
         }
     }
 }
