@@ -39,7 +39,6 @@ fn main() {
         .run();
 }
 
-
 fn player_controls(
     keyboard_input: Res<Input<KeyCode>>,
     mut steering_query: Query<&mut Steering>,
@@ -190,6 +189,7 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let material = materials.add(Color::rgb(0.9, 0.01, 0.01).into());
+    let central_material = materials.add(Color::rgb(0.0, 0.0, 1.0).into());
 
 
     let entity = commands
@@ -215,7 +215,7 @@ fn setup(
                         ..Default::default()
                     }
                     .draw(
-                    materials.add(Color::rgb(0.0, 0.0, 1.0).into()),
+                    central_material.clone(),
                     TessellationMode::Fill(FillOptions::default()),
                     Transform::from_translation(Vec3::new(0.0, 0.0, 0.5))
                 ));
