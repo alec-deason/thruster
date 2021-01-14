@@ -37,5 +37,5 @@ bevy = {git = "https://github.com/bevyengine/bevy.git", default-features=false}
 opt-level = 1
 
 [profile.release]
-# lto = true
-# opt-level = 's'
+lto = true
+opt-level = 's'

@@ -1,12 +1,11 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize};
 
 use bevy::prelude::*;
 use bevy_rapier2d::{
-    physics::{EventQueue, RapierConfiguration, RapierPhysicsPlugin, RigidBodyHandleComponent},
+    physics::{RigidBodyHandleComponent, RapierConfiguration},
     rapier::{
         dynamics::RigidBodySet,
-        geometry::{ColliderSet, ContactEvent, InteractionGroups},
         math::{Point, Vector},
     },
 };
@@ -20,8 +19,7 @@ impl Plugin for ThrusterPlugin {
         if !app.resources().contains::<ThrustScale>() {
             app.resources_mut().insert(ThrustScale::default());
         }
-        app
-            .register_type::<Engine>()
+        app.register_type::<Engine>()
             .add_event::<EngineEvent>()
             .add_stage_after(stage::UPDATE, "update_steering", SystemStage::parallel())
             .add_system_to_stage("update_steering", invalidate_caches.system())
@@ -32,7 +30,7 @@ impl Plugin for ThrusterPlugin {
 pub struct ThrustScale(pub f32);
 impl Default for ThrustScale {
     fn default() -> Self {
-        Self(8000.0)
+        Self(1.0)
     }
 }
 
@@ -74,6 +72,7 @@ impl Steering {
 
 fn steering(
     thrust_scale: Res<ThrustScale>,
+    rapier_config: Res<RapierConfiguration>,
     mut body_set: ResMut<RigidBodySet>,
     mut engine_events: ResMut<Events<EngineEvent>>,
     mut parent_query: Query<(
@@ -98,7 +97,6 @@ fn steering(
                     }
                     entities.sort();
                     let mut engines = Vec::with_capacity(entities.len());
-                    let mut total_thrust = 0.0;
                     for e in entities {
                         if let Ok((transform, engine)) = engine_query.get(e) {
                             let transform = if e == parent {
@@ -141,11 +139,11 @@ fn steering(
                     ref mut firings_cache,
                     desired_force,
                     desired_torque,
-                    ref mut currently_firing,
                     ..
                 } = &mut *steering;
                 let firing = firings_cache.entry(key).or_insert_with(|| {
-                    let total_thrust:f32 = engines.as_ref().unwrap().iter().map(|e| e.2).sum::<f32>();
+                    let total_thrust: f32 =
+                        engines.as_ref().unwrap().iter().map(|e| e.2).sum::<f32>();
                     let mut problem = Problem::new(OptimizationDirection::Minimize);
                     let mut activations = vec![];
                     let mut torques = vec![];
@@ -166,19 +164,19 @@ fn steering(
 
                     let torque_weight = 1.0;
                     let total_force_weight = 1.0;
-                    let fuel_consumption_weight = 0.0001;
+                    let fuel_consumption_weight = 0.0;//0.0001;
                     let desire = *desired_force * total_thrust;
 
-                    for (engine_position, thrust_vector, max_thrust, _event_key) in engines.as_ref().unwrap() {
+                    for (engine_position, thrust_vector, max_thrust, _event_key) in
+                        engines.as_ref().unwrap()
+                    {
                         let distance_to_com = *engine_position - center_of_mass;
-                        let torque =
-                            distance_to_com.extend(0.0).cross(thrust_vector.extend(0.0)).z * torque_weight;
-                        let ev = *thrust_vector * total_force_weight;
-                        let par = ((ev * desire) / desire.length_squared()) * desire;
-                        let mut scale = desire.dot(par) / par.dot(par);
-                        if scale.is_nan() {
-                            scale = 0.0;
-                        }
+                        let torque = distance_to_com
+                            .extend(0.0)
+                            .cross(thrust_vector.extend(0.0))
+                            .z
+                            * torque_weight;
+                        let ev = *thrust_vector * *max_thrust * total_force_weight;
                         let v = problem.add_var(fuel_consumption_weight, (0.0, 1.0));
                         activations.push(v);
                         torques.push(torque);
@@ -219,7 +217,10 @@ fn steering(
                     problem.add_constraint(&force_y_neg_constraint, ComparisonOp::Le, 0.0);
                     let solution = problem.solve().unwrap();
 
-                    activations.into_iter().map(|a| solution[a] as f32).collect()
+                    activations
+                        .into_iter()
+                        .map(|a| solution[a] as f32)
+                        .collect()
                 });
 
                 for ((position, thrust_vector, max_thrust, event_key), firing) in
@@ -234,7 +235,7 @@ fn steering(
                             .mul_vec3(thrust_vector.extend(0.0));
                         let thrust_vector = Vector::new(thrust_vector.x, thrust_vector.y);
                         body.apply_impulse_at_point(
-                            thrust_vector * *max_thrust * thrust_scale.0,
+                            thrust_vector * *max_thrust * thrust_scale.0 * (4000.0/rapier_config.scale),
                             p,
                             true,
                         );
@@ -245,7 +246,7 @@ fn steering(
         let mut new_current = HashSet::new();
 
         for (e, i, f) in just_fired {
-            new_current.insert((e,i));
+            new_current.insert((e, i));
             if !steering.currently_firing.contains(&(e, i)) {
                 engine_events.send(EngineEvent::StartedFiring(e, i, f));
             }
@@ -286,8 +287,7 @@ pub enum EngineEvent {
 impl EngineEvent {
     pub fn engine(&self) -> (Entity, usize) {
         match self {
-            EngineEvent::StartedFiring(e, i, ..) |
-            EngineEvent::StoppedFiring(e, i, ..) => (*e, *i),
+            EngineEvent::StartedFiring(e, i, ..) | EngineEvent::StoppedFiring(e, i, ..) => (*e, *i),
         }
     }
 }
