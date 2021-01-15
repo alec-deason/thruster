@@ -72,7 +72,6 @@ impl Steering {
 }
 
 fn fire_engines(
-    time: Res<Time>,
     thrust_scale: Res<ThrustScale>,
     rapier_config: Res<RapierConfiguration>,
     mut body_set: ResMut<RigidBodySet>,
@@ -172,7 +171,6 @@ fn fire_engines(
                                 * *max_thrust
                                 * thrust_scale.0
                                 * (80000.0 / rapier_config.scale),
-                                //* time.delta_seconds(),
                             p,
                             true,
                         );
