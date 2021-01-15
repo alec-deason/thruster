@@ -23,7 +23,7 @@ pub(crate) fn calculate_firing(engines: &[(Vec2, Vec2, f32, (Entity, usize))], c
     let mut total_positive_torque = 0.0;
     let mut total_negative_torque = 0.0;
 
-    let torque_weight = 1.0;
+    let torque_weight = total_thrust * 10.0;
     let total_force_weight = 1.0;
     let fuel_consumption_weight = 0.0001;
     let desire = desired_force * total_thrust;
@@ -86,10 +86,13 @@ pub(crate) fn calculate_firing(engines: &[(Vec2, Vec2, f32, (Entity, usize))], c
     problem.add_constraint(&force_y_pos_constraint, ComparisonOp::Le, 0.0);
     problem.add_constraint(&force_y_neg_constraint, ComparisonOp::Le, 0.0);
     let solution = problem.solve().unwrap();
-    println!("{:?}", solution);
 
     activations
         .into_iter()
-        .map(|a| solution[a] as f32)
+        // FIXME: I am reducing precision here because the optimizer sometimes produces
+        // results that are _very close_ but not quite right. It's possible that some
+        // games will actualy need the extra precision and I should figure out what's
+        // wrong with the optimizer anyway
+        .map(|a| (solution[a] as f32 *100.0).round() / 100.0)
         .collect()
 }
