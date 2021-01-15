@@ -167,12 +167,12 @@ fn fire_engines(
                             .rotation
                             .mul_vec3(thrust_vector.extend(0.0));
                         let thrust_vector = Vector::new(thrust_vector.x, thrust_vector.y);
-                        body.apply_impulse_at_point(
+                        body.apply_force_at_point(
                             thrust_vector
                                 * *max_thrust
                                 * thrust_scale.0
-                                * (100000.0 / rapier_config.scale)
-                                * time.delta_seconds(),
+                                * (80000.0 / rapier_config.scale),
+                                //* time.delta_seconds(),
                             p,
                             true,
                         );
