@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use bevy_rapier2d::{
-    physics::{RigidBodyHandleComponent, RapierConfiguration},
+    physics::{RapierConfiguration, RigidBodyHandleComponent},
     rapier::{
         dynamics::RigidBodySet,
         math::{Point, Vector},
@@ -124,7 +124,11 @@ fn fire_engines(
                 let center_of_mass = Vec2::new(body.world_com.x, body.world_com.y)
                     - parent_transform.translation.truncate();
                 // TODO: This epsilon needs to depend on rapier scale? Or maybe be user configurable?
-                if steering.last_seen_center_of_mass.distance_squared(center_of_mass) > 0.5 {
+                if steering
+                    .last_seen_center_of_mass
+                    .distance_squared(center_of_mass)
+                    > 0.5
+                {
                     steering.last_seen_center_of_mass = center_of_mass;
                     steering.firings_cache.clear();
                 }
@@ -143,7 +147,12 @@ fn fire_engines(
                     ..
                 } = &mut *steering;
                 let firing = firings_cache.entry(key).or_insert_with(|| {
-                    optimizer::calculate_firing(engines.as_ref().unwrap(), center_of_mass, *desired_force, *desired_torque)
+                    optimizer::calculate_firing(
+                        engines.as_ref().unwrap(),
+                        center_of_mass,
+                        *desired_force,
+                        *desired_torque,
+                    )
                 });
 
                 for ((position, thrust_vector, max_thrust, event_key), firing) in
@@ -158,7 +167,10 @@ fn fire_engines(
                             .mul_vec3(thrust_vector.extend(0.0));
                         let thrust_vector = Vector::new(thrust_vector.x, thrust_vector.y);
                         body.apply_impulse_at_point(
-                            thrust_vector * *max_thrust * thrust_scale.0 * (4000.0/rapier_config.scale),
+                            thrust_vector
+                                * *max_thrust
+                                * thrust_scale.0
+                                * (4000.0 / rapier_config.scale),
                             p,
                             true,
                         );

@@ -1,9 +1,13 @@
 use bevy::prelude::*;
 use minilp::{ComparisonOp, OptimizationDirection, Problem};
 
-pub(crate) fn calculate_firing(engines: &[(Vec2, Vec2, f32, (Entity, usize))], center_of_mass: Vec2, desired_force: Vec2, desired_torque: f32) -> Vec<f32> {
-    let total_thrust: f32 =
-        engines.iter().map(|e| e.2).sum::<f32>();
+pub(crate) fn calculate_firing(
+    engines: &[(Vec2, Vec2, f32, (Entity, usize))],
+    center_of_mass: Vec2,
+    desired_force: Vec2,
+    desired_torque: f32,
+) -> Vec<f32> {
+    let total_thrust: f32 = engines.iter().map(|e| e.2).sum::<f32>();
     let mut problem = Problem::new(OptimizationDirection::Minimize);
     let mut activations = vec![];
     let mut torques = vec![];
@@ -28,9 +32,7 @@ pub(crate) fn calculate_firing(engines: &[(Vec2, Vec2, f32, (Entity, usize))], c
     let fuel_consumption_weight = 0.0001;
     let desire = desired_force * total_thrust;
 
-    for (engine_position, thrust_vector, max_thrust, _event_key) in
-        engines
-    {
+    for (engine_position, thrust_vector, max_thrust, _event_key) in engines {
         let distance_to_com = *engine_position - center_of_mass;
         let thrust_vector = *thrust_vector * *max_thrust;
         let torque = distance_to_com
@@ -55,9 +57,7 @@ pub(crate) fn calculate_firing(engines: &[(Vec2, Vec2, f32, (Entity, usize))], c
         desired_torque * total_negative_torque
     };
 
-    for (torque, (force, v)) in
-        torques.iter().zip(forces.iter().zip(activations.iter()))
-    {
+    for (torque, (force, v)) in torques.iter().zip(forces.iter().zip(activations.iter())) {
         torque_pos_constraint.push((*v, *torque as f64));
         torque_neg_constraint.push((*v, -torque as f64));
 
@@ -93,6 +93,6 @@ pub(crate) fn calculate_firing(engines: &[(Vec2, Vec2, f32, (Entity, usize))], c
         // results that are _very close_ but not quite right. It's possible that some
         // games will actualy need the extra precision and I should figure out what's
         // wrong with the optimizer anyway
-        .map(|a| (solution[a] as f32 *100.0).round() / 100.0)
+        .map(|a| (solution[a] as f32 * 100.0).round() / 100.0)
         .collect()
 }

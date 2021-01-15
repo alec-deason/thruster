@@ -6,7 +6,7 @@ use bevy_rapier2d::{
 };
 use rand::prelude::*;
 
-use thruster::{EngineSet, EngineEvent, Steering, Engine, ThrustScale, ThrusterPlugin};
+use thruster::{Engine, EngineEvent, EngineSet, Steering, ThrustScale, ThrusterPlugin};
 
 fn main() {
     let mut app = App::build();
@@ -91,7 +91,7 @@ fn make_random_ship(
         let y = a.sin() * r;
         a += da;
         let engine_angle = if rng.gen::<f32>() < 0.5 {
-            rng.gen::<f32>() * std::f32::consts::PI*2.0
+            rng.gen::<f32>() * std::f32::consts::PI * 2.0
         } else {
             std::f32::consts::PI / 2.0
         };
@@ -396,9 +396,9 @@ fn camera_tracking(
     if let (Some(player), Some(mut camera)) =
         (player_query.iter().next(), camera_query.iter_mut().next())
     {
-        let d = camera.translation.distance(player.translation).min(500.0)/500.0;
+        let d = camera.translation.distance(player.translation).min(500.0) / 500.0;
         let t = 0.04 * d;
-        let t = camera.translation * (1.0-t) + player.translation * t;
+        let t = camera.translation * (1.0 - t) + player.translation * t;
         camera.translation.x = t.x;
         camera.translation.y = t.y;
     }
