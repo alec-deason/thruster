@@ -6,7 +6,7 @@ use bevy_rapier2d::{
 };
 use rand::prelude::*;
 
-use thruster::{Engine, EngineEvent, Steering, SubEngine, ThrustScale, ThrusterPlugin};
+use thruster::{EngineSet, EngineEvent, Steering, Engine, ThrustScale, ThrusterPlugin};
 
 fn main() {
     let mut app = App::build();
@@ -85,24 +85,18 @@ fn make_random_ship(
     let mut a = std::f32::consts::PI / 2.0;
     let da = std::f32::consts::PI / count as f32;
 
-    let engine_angles = [
-        (std::f32::consts::PI / 2.0, 70.0),
-        (-std::f32::consts::PI / 2.0, 10.0),
-        (0.0, 10.0),
-        (std::f32::consts::PI * 2.0, 10.0),
-    ];
-
     for _ in 0..count {
         let r = rng.gen_range(20.0..60.0) * (count as f32 / 10.0).max(1.0).powf(1.5);
         let x = a.cos() * r;
         let y = a.sin() * r;
         a += da;
-        let engine_angle = engine_angles
-            .choose_weighted(&mut rng, |item| item.1)
-            .unwrap()
-            .0;
+        let engine_angle = if rng.gen::<f32>() < 0.5 {
+            rng.gen::<f32>() * std::f32::consts::PI*2.0
+        } else {
+            std::f32::consts::PI / 2.0
+        };
         let thrust_vector = Vec2::new(engine_angle.cos(), engine_angle.sin()).normalize();
-        new_engines.push(SubEngine {
+        new_engines.push(Engine {
             offset: Vec2::new(x, y),
             thrust_vector,
             max_thrust: 1.0 * (4.0 / count as f32).min(0.2),
@@ -121,7 +115,7 @@ fn make_random_ship(
 
 fn make_ship_from_engines(
     entity: Entity,
-    engines: Vec<SubEngine>,
+    engines: Vec<Engine>,
     commands: &mut Commands,
     materials: &mut Assets<ColorMaterial>,
 ) {
@@ -167,14 +161,14 @@ fn make_ship_from_engines(
                 ),
             );
         })
-        .with_bundle((ColliderBuilder::ball(r), Engine(engines)));
+        .with_bundle((ColliderBuilder::ball(r), EngineSet(engines)));
 }
 
 fn add_engine_polygons(
     commands: &mut Commands,
     entity: Entity,
     materials: &mut Assets<ColorMaterial>,
-    engines: &[SubEngine],
+    engines: &[Engine],
 ) {
     let material = materials.add(Color::rgb_u8(145, 34, 8).into());
     let mut children = Vec::with_capacity(engines.len());
@@ -316,22 +310,22 @@ fn setup(
         .unwrap();
 
     let engines = vec![
-        SubEngine {
+        Engine {
             offset: Vec2::new(-30.0, 0.0),
             thrust_vector: Vec2::new(0.0, 1.0),
             ..Default::default()
         },
-        SubEngine {
+        Engine {
             offset: Vec2::new(30.0, 0.0),
             thrust_vector: Vec2::new(0.0, 1.0),
             ..Default::default()
         },
-        SubEngine {
+        Engine {
             offset: Vec2::new(0.0, 60.0),
             thrust_vector: Vec2::new(0.1, 0.0),
             ..Default::default()
         },
-        SubEngine {
+        Engine {
             offset: Vec2::new(0.0, 60.0),
             thrust_vector: Vec2::new(-0.1, 0.0),
             ..Default::default()
@@ -402,7 +396,9 @@ fn camera_tracking(
     if let (Some(player), Some(mut camera)) =
         (player_query.iter().next(), camera_query.iter_mut().next())
     {
-        let t = camera.translation * 0.99 + player.translation * 0.01;
+        let d = camera.translation.distance(player.translation).min(500.0)/500.0;
+        let t = 0.04 * d;
+        let t = camera.translation * (1.0-t) + player.translation * t;
         camera.translation.x = t.x;
         camera.translation.y = t.y;
     }
