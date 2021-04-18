@@ -3,19 +3,19 @@ mod optimizer;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-use bevy::prelude::*;
 use bevy::app::Events;
+use bevy::prelude::*;
 use bevy_rapier2d::{
     physics::{RapierConfiguration, RigidBodyHandleComponent},
     rapier::{
-        dynamics::{RigidBodySet, RigidBody},
+        dynamics::{RigidBody, RigidBodySet},
         math::{Point, Vector},
     },
 };
 
 const CACHE_COARSENESS: f32 = std::f32::consts::PI / 1000.0;
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone,SystemLabel)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
 pub enum SystemLabels {
     InvalidateCaches,
     FireEngines,
@@ -29,11 +29,18 @@ impl Plugin for ThrusterPlugin {
         if !app.world().contains_resource::<ThrustScale>() {
             app.world_mut().insert_resource(ThrustScale::default());
         }
-        let cache_system = invalidate_caches.system().label(SystemLabels::InvalidateCaches);
+        let cache_system = invalidate_caches
+            .system()
+            .label(SystemLabels::InvalidateCaches);
         app.register_type::<EngineSet>()
             .add_event::<EngineEvent>()
             .add_system_to_stage(CoreStage::PostUpdate, cache_system)
-            .add_system(fire_engines.system().label(SystemLabels::FireEngines).after(SystemLabels::InvalidateCaches));
+            .add_system(
+                fire_engines
+                    .system()
+                    .label(SystemLabels::FireEngines)
+                    .after(SystemLabels::InvalidateCaches),
+            );
     }
 }
 
@@ -116,7 +123,11 @@ impl Steering {
         self.engines = Some(engines);
     }
 
-    pub fn estimate_acceleration(&mut self, body: &RigidBody, engine_scale: f32) -> Option<(Vec2, f32)> {
+    pub fn estimate_acceleration(
+        &mut self,
+        body: &RigidBody,
+        engine_scale: f32,
+    ) -> Option<(Vec2, f32)> {
         let key = (
             (self.desired_force.x / CACHE_COARSENESS) as i32,
             (self.desired_force.y / CACHE_COARSENESS) as i32,
@@ -141,18 +152,28 @@ impl Steering {
         } = self;
         if !firings_cache.contains_key(&key) {
             if let Some(engines) = engines.as_ref() {
-                firings_cache.insert(key, optimizer::calculate_firing(
-                    engines,
-                    center_of_mass,
-                    *desired_force,
-                    *desired_torque,
-                ));
+                firings_cache.insert(
+                    key,
+                    optimizer::calculate_firing(
+                        engines,
+                        center_of_mass,
+                        *desired_force,
+                        *desired_torque,
+                    ),
+                );
             } else {
                 return None;
             }
         }
         let firing = firings_cache.get(&key).unwrap();
-        Some(optimizer::estimate_acceleration(body.effective_world_inv_inertia_sqrt, body.effective_inv_mass, engine_scale, center_of_mass, self.engines.as_ref().unwrap(), &firing))
+        Some(optimizer::estimate_acceleration(
+            body.effective_world_inv_inertia_sqrt,
+            body.effective_inv_mass,
+            engine_scale,
+            center_of_mass,
+            self.engines.as_ref().unwrap(),
+            &firing,
+        ))
     }
 }
 
@@ -181,7 +202,7 @@ fn fire_engines(
                         parent,
                         rapier_config.scale,
                         maybe_children,
-                        &engine_query
+                        &engine_query,
                     );
                 }
 
@@ -224,18 +245,17 @@ fn fire_engines(
                 {
                     if *firing > 0.0 {
                         just_fired.push((event_key.0, event_key.1, *firing));
-                        let mut parent_transform = parent_transform.clone();
+                        let mut parent_transform = parent_transform;
                         parent_transform.translation /= rapier_config.scale;
                         let p = parent_transform.mul_vec3(position.extend(0.0));
                         let p = Point::new(p.x, p.y);
                         let thrust_vector = parent_transform
                             .rotation
                             .mul_vec3(thrust_vector.extend(0.0));
-                        let thrust_vector = Vector::new(thrust_vector.x, thrust_vector.y).normalize();
+                        let thrust_vector =
+                            Vector::new(thrust_vector.x, thrust_vector.y).normalize();
                         body.apply_force_at_point(
-                            thrust_vector
-                                * *max_thrust
-                                * thrust_scale.0,
+                            thrust_vector * *max_thrust * thrust_scale.0,
                             p,
                             true,
                         );

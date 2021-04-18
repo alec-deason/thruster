@@ -12,20 +12,24 @@ pub(crate) fn estimate_acceleration(
     let mut acceleration = Vec2::ZERO;
     let mut angular_acceleration = 0.0;
 
-    for ((engine_position, thrust_vector, max_thrust, _), firing_amount) in engines.iter().zip(firing) {
+    for ((engine_position, thrust_vector, max_thrust, _), firing_amount) in
+        engines.iter().zip(firing)
+    {
         if *firing_amount > 0.0 {
             let distance_to_com = *engine_position - center_of_mass;
             //let distance_to_com = (distance_to_com * 1000.0).round() / 1000.0;
             let thrust_vector = *thrust_vector * *max_thrust * *firing_amount * engine_scale;
             //let torque = distance_to_com.x*thrust_vector.y - distance_to_com.y  * thrust_vector.x;
             //let torque = (torque * 1000.0).round() / 1000.0;
-            
+
             let torque = distance_to_com
                 .extend(0.0)
                 .cross(thrust_vector.extend(0.0))
-                .z * -1.0;
+                .z
+                * -1.0;
 
-            angular_acceleration += inverse_moment_of_inertia_sqrt * (inverse_moment_of_inertia_sqrt * torque);
+            angular_acceleration +=
+                inverse_moment_of_inertia_sqrt * (inverse_moment_of_inertia_sqrt * torque);
             acceleration += thrust_vector * inverse_mass;
         }
     }
