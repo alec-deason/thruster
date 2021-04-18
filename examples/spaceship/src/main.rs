@@ -1,8 +1,8 @@
 use bevy::{prelude::*, render::camera::Camera};
-use bevy_prototype_lyon::prelude::*;
+use bevy_prototype_lyon::{prelude::*, entity::ShapeBundle};
 use bevy_rapier2d::{
-    physics::{RapierConfiguration, RapierPhysicsPlugin},
-    rapier::{dynamics::RigidBodyBuilder, geometry::ColliderBuilder, math::Vector},
+    physics::{RapierConfiguration, RapierPhysicsPlugin, RigidBodyHandleComponent},
+    rapier::{dynamics::{RigidBodyBuilder, RigidBodySet}, geometry::ColliderBuilder, math::{Vector, Isometry}},
 };
 use rand::prelude::*;
 
@@ -10,13 +10,13 @@ use thruster::{Engine, EngineEvent, EngineSet, Steering, ThrustScale, ThrusterPl
 
 fn main() {
     let mut app = App::build();
-    app.add_resource(Msaa { samples: 4 })
+    app.insert_resource(Msaa { samples: 4 })
         .add_plugins(DefaultPlugins)
         .add_plugin(ShapePlugin)
-        .add_resource(ThrustScale(3.0))
+        .insert_resource(ThrustScale(200000.0))
         .add_plugin(ThrusterPlugin)
         .add_plugin(RapierPhysicsPlugin)
-        .add_resource(RapierConfiguration {
+        .insert_resource(RapierConfiguration {
             gravity: Vector::zeros(),
             ..Default::default()
         });
@@ -58,17 +58,34 @@ fn player_controls(keyboard_input: Res<Input<KeyCode>>, mut steering_query: Quer
 }
 
 fn randomize_player_ship(
-    commands: &mut Commands,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut commands: Commands,
+    bodies: Res<RigidBodySet>,
     keyboard_input: Res<Input<KeyCode>>,
-    player_query: Query<(Entity, &Children), With<Steering>>,
+    player_query: Query<(Entity, &RigidBodyHandleComponent), With<Steering>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Space) {
-        if let Some((entity, children)) = player_query.iter().next() {
-            for child in children.iter() {
-                commands.despawn_recursive(*child);
-            }
-            make_random_ship(entity, commands, &mut materials);
+        if let Some((entity, body_handle)) = player_query.iter().next() {
+            commands.entity(entity).despawn_recursive();
+            let pos = if let Some(body) = bodies.get(body_handle.handle()) {
+                body.position().clone()
+            } else {
+                Isometry::identity()
+            };
+            let entity = commands
+                .spawn_bundle((
+                    RigidBodyBuilder::new_dynamic()
+                        .linear_damping(0.9)
+                        .angular_damping(0.9)
+                        .position(pos),
+                    Steering::default(),
+                    Transform {
+                        translation: Vec3::new(pos.translation.x, pos.translation.y, 0.0),
+                        rotation: Quat::from_rotation_z(pos.rotation.angle()),
+                        ..Default::default()
+                    }
+                ))
+                .id();
+            make_random_ship(entity, &mut commands);
         }
     }
 }
@@ -76,7 +93,6 @@ fn randomize_player_ship(
 fn make_random_ship(
     entity: Entity,
     commands: &mut Commands,
-    materials: &mut Assets<ColorMaterial>,
 ) {
     let mut rng = rand::thread_rng();
 
@@ -99,7 +115,7 @@ fn make_random_ship(
         new_engines.push(Engine {
             offset: Vec2::new(x, y),
             thrust_vector,
-            max_thrust: 1.0 * (4.0 / count as f32).min(0.2),
+            max_thrust: 1.0,
         });
     }
     let mut reflected_engines = new_engines.clone();
@@ -110,16 +126,14 @@ fn make_random_ship(
     }
     new_engines.extend(reflected_engines.into_iter());
 
-    make_ship_from_engines(entity, new_engines, commands, materials);
+    make_ship_from_engines(entity, new_engines, commands);
 }
 
 fn make_ship_from_engines(
     entity: Entity,
     engines: Vec<Engine>,
     commands: &mut Commands,
-    materials: &mut Assets<ColorMaterial>,
 ) {
-    let ship_material = materials.add(Color::rgb_u8(169, 39, 9).into());
     let center: Vec2 = engines.iter().map(|e| &e.offset).sum::<Vec2>() / engines.len() as f32;
     let r = engines
         .iter()
@@ -127,50 +141,46 @@ fn make_ship_from_engines(
         .max()
         .unwrap() as f32
         / 1000.0;
-    add_engine_polygons(commands, entity, materials, &engines);
-    commands.set_current_entity(entity);
+    add_engine_polygons(commands, entity, &engines);
+    let shape = shapes::Polygon {
+        points: engines
+            .iter()
+            .map(|e| (e.offset.x, e.offset.y).into())
+            .collect(),
+        closed: true,
+    };
     commands
-        .with_bundle(
-            shapes::Polygon {
-                points: engines
-                    .iter()
-                    .map(|e| (e.offset.x, e.offset.y).into())
-                    .collect(),
-                closed: true,
-            }
-            .draw(
-                ship_material,
-                TessellationMode::Fill(FillOptions::default()),
-                Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
-            ),
-        )
+        .entity(entity)
+        .insert_bundle(GeometryBuilder::build_as(
+            &shape,
+            ShapeColors::new(Color::rgb_u8(169, 39, 9)),
+            DrawMode::Fill(FillOptions::default()),
+            Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
+        ))
         .with_children(|parent| {
-            parent.spawn(
-                shapes::Polygon {
-                    points: vec![
-                        (center.x - 10.0, center.y - 20.0).into(),
-                        (center.x + 10.0, center.y - 20.0).into(),
-                        (center.x, center.y + 20.0).into(),
-                    ],
-                    closed: true,
-                }
-                .draw(
-                    materials.add(Color::rgb_u8(82, 16, 53).into()),
-                    TessellationMode::Fill(FillOptions::default()),
-                    Transform::from_translation(Vec3::new(0.0, 0.0, 0.5)),
-                ),
-            );
+            let shape = shapes::Polygon {
+                points: vec![
+                    (center.x - 10.0, center.y - 20.0).into(),
+                    (center.x + 10.0, center.y - 20.0).into(),
+                    (center.x, center.y + 20.0).into(),
+                ],
+                closed: true,
+            };
+            parent.spawn_bundle(GeometryBuilder::build_as(
+                &shape,
+                ShapeColors::new(Color::rgb_u8(82, 16, 53)),
+                DrawMode::Fill(FillOptions::default()),
+                Transform::from_translation(Vec3::new(0.0, 0.0, 0.5)),
+            ));
         })
-        .with_bundle((ColliderBuilder::ball(r), EngineSet(engines)));
+        .insert_bundle((ColliderBuilder::ball(r), EngineSet(engines)));
 }
 
 fn add_engine_polygons(
     commands: &mut Commands,
     entity: Entity,
-    materials: &mut Assets<ColorMaterial>,
     engines: &[Engine],
 ) {
-    let material = materials.add(Color::rgb_u8(145, 34, 8).into());
     let mut children = Vec::with_capacity(engines.len());
     for (i, engine) in engines.iter().enumerate() {
         let shape = shapes::Polygon {
@@ -186,56 +196,53 @@ fn add_engine_polygons(
         );
         let indicator_offset = engine_rotation.mul_vec3(Vec3::new(0.0, -15.0, 0.0));
         let e = commands
-            .spawn(shape.draw(
-                material.clone(),
-                TessellationMode::Fill(FillOptions::default()),
+            .spawn_bundle(GeometryBuilder::build_as(
+                &shape,
+                ShapeColors::new(Color::rgb_u8(145, 34, 8)),
+                DrawMode::Fill(FillOptions::default()),
                 Transform {
                     translation: Vec3::new(engine.offset.x, engine.offset.y, 10.0),
                     rotation: engine_rotation,
                     ..Default::default()
                 },
             ))
-            .current_entity()
-            .unwrap();
+            .id();
         let indicator = commands
-            .spawn(
-                shapes::Circle {
+            .spawn_bundle(GeometryBuilder::build_as(
+                &shapes::Circle {
                     radius: 5.0,
                     ..Default::default()
-                }
-                .draw(
-                    materials.add(Color::rgba(1.0, 0.0, 0.0, 0.0).into()),
-                    TessellationMode::Fill(FillOptions::default()),
-                    Transform {
-                        translation: Vec3::new(
-                            engine.offset.x + indicator_offset.x,
-                            engine.offset.y + indicator_offset.y,
-                            9.0,
-                        ),
-                        rotation: Quat::from_rotation_z(
-                            engine.thrust_vector.y.atan2(engine.thrust_vector.x)
-                                - std::f32::consts::PI / 2.0,
-                        ),
-                        ..Default::default()
-                    },
-                ),
-            )
-            .with(EngineIndicator(i))
-            .current_entity()
-            .unwrap();
+                },
+                ShapeColors::new(Color::rgba(1.0, 0.0, 0.0, 0.0)),
+                DrawMode::Fill(FillOptions::default()),
+                Transform {
+                    translation: Vec3::new(
+                        engine.offset.x + indicator_offset.x,
+                        engine.offset.y + indicator_offset.y,
+                        9.0,
+                    ),
+                    rotation: Quat::from_rotation_z(
+                        engine.thrust_vector.y.atan2(engine.thrust_vector.x)
+                            - std::f32::consts::PI / 2.0,
+                    ),
+                    ..Default::default()
+                },
+            ))
+            .insert(EngineIndicator(i))
+            .id();
         children.push(e);
         children.push(indicator);
     }
-    commands.push_children(entity, &children);
+    commands.entity(entity).push_children(&children);
 }
 
 fn setup(
-    commands: &mut Commands,
+    mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     commands
-        .spawn(NodeBundle {
+        .spawn_bundle(NodeBundle {
             material: materials.add(Color::rgb_u8(9, 7, 67).into()),
             style: Style {
                 padding: Rect::all(Val::Px(20.0)),
@@ -248,36 +255,41 @@ fn setup(
         })
         .with_children(|parent| {
             parent
-                .spawn(TextBundle {
+                .spawn_bundle(TextBundle {
                     style: Style {
                         margin: Rect::all(Val::Px(5.0)),
                         ..Default::default()
                     },
                     text: Text {
-                        value: "AWSD/Arrows to fly.".to_string(),
-                        font: asset_server.load("FiraSans-Bold.ttf"),
-                        style: TextStyle {
-                            font_size: 40.0,
-                            color: Color::rgb_u8(80, 155, 199),
-                            ..Default::default()
-                        },
+                        sections: vec![TextSection {
+                            value: "AWSD/Arrows to fly.".to_string(),
+                            style: TextStyle {
+                                font: asset_server.load("FiraSans-Bold.ttf"),
+                                font_size: 40.0,
+                                color: Color::rgb_u8(80, 155, 199),
+                                ..Default::default()
+                            },
+                        }],
                         ..Default::default()
                     },
                     ..Default::default()
-                })
-                .spawn(TextBundle {
+                });
+            parent
+                .spawn_bundle(TextBundle {
                     style: Style {
                         margin: Rect::all(Val::Px(5.0)),
                         ..Default::default()
                     },
                     text: Text {
-                        value: "Space to randomize ship.".to_string(),
-                        font: asset_server.load("FiraSans-Bold.ttf"),
-                        style: TextStyle {
-                            font_size: 40.0,
-                            color: Color::rgb_u8(80, 155, 199),
-                            ..Default::default()
-                        },
+                        sections: vec![TextSection {
+                            value: "Space to randomize ship.".to_string(),
+                            style: TextStyle {
+                                font: asset_server.load("FiraSans-Bold.ttf"),
+                                font_size: 40.0,
+                                color: Color::rgb_u8(80, 155, 199),
+                                ..Default::default()
+                            },
+                        }],
                         ..Default::default()
                     },
                     ..Default::default()
@@ -297,17 +309,18 @@ fn setup(
         67.0 / 256.0,
     )));
 
+    commands
+        .spawn_bundle(OrthographicCameraBundle::new_2d());
+    commands
+        .spawn_bundle(UiCameraBundle::default());
     let entity = commands
-        .spawn(Camera2dBundle::default())
-        .spawn(CameraUiBundle::default())
-        .spawn((
+        .spawn_bundle((
             RigidBodyBuilder::new_dynamic()
                 .linear_damping(0.9)
                 .angular_damping(0.9),
             Steering::default(),
         ))
-        .current_entity()
-        .unwrap();
+        .id();
 
     let engines = vec![
         Engine {
@@ -331,66 +344,60 @@ fn setup(
             ..Default::default()
         },
     ];
-    make_ship_from_engines(entity, engines, commands, &mut materials);
+    make_ship_from_engines(entity, engines, &mut commands);
 }
 
-fn setup_backdrop(commands: &mut Commands, mut materials: ResMut<Assets<ColorMaterial>>) {
+fn setup_backdrop(mut commands: Commands, mut materials: ResMut<Assets<ColorMaterial>>) {
     let material = materials.add(Color::rgb_u8(80, 155, 199).into());
     let umbra_material = materials.add(Color::rgba_u8(80, 155, 199, 100).into());
     for x in -20..21 {
         commands
-            .spawn(
-                shapes::Polygon {
+            .spawn_bundle(GeometryBuilder::build_as(
+                &shapes::Polygon {
                     points: vec![(0.0, -2000.0).into(), (0.0, 2000.0).into()],
                     closed: false,
-                }
-                .draw(
-                    umbra_material.clone(),
-                    TessellationMode::Stroke(StrokeOptions::default().with_line_width(6.0)),
-                    Transform::from_translation(Vec3::new(x as f32 * 100.0, 0.0, 0.0)),
-                ),
-            )
-            .spawn(
-                shapes::Polygon {
+                },
+                ShapeColors::new(Color::rgba_u8(80, 155, 199, 100)),
+                DrawMode::Stroke(StrokeOptions::default().with_line_width(6.0)),
+                Transform::from_translation(Vec3::new(x as f32 * 100.0, 0.0, 0.0)),
+            ));
+        commands
+            .spawn_bundle(GeometryBuilder::build_as(
+                &shapes::Polygon {
                     points: vec![(0.0, -2000.0).into(), (0.0, 2000.0).into()],
                     closed: false,
-                }
-                .draw(
-                    material.clone(),
-                    TessellationMode::Stroke(StrokeOptions::default().with_line_width(2.0)),
-                    Transform::from_translation(Vec3::new(x as f32 * 100.0, 0.0, 0.1)),
-                ),
-            );
+                },
+                ShapeColors::new(Color::rgb_u8(80, 155, 199)),
+                DrawMode::Stroke(StrokeOptions::default().with_line_width(2.0)),
+                Transform::from_translation(Vec3::new(x as f32 * 100.0, 0.0, 0.1)),
+            ));
     }
     for y in -20..21 {
         commands
-            .spawn(
-                shapes::Polygon {
+            .spawn_bundle(GeometryBuilder::build_as(
+                &shapes::Polygon {
                     points: vec![(-2000.0, 0.0).into(), (2000.0, 0.0).into()],
                     closed: false,
-                }
-                .draw(
-                    umbra_material.clone(),
-                    TessellationMode::Stroke(StrokeOptions::default().with_line_width(6.0)),
-                    Transform::from_translation(Vec3::new(0.0, y as f32 * 100.0, 0.0)),
-                ),
-            )
-            .spawn(
-                shapes::Polygon {
+                },
+                ShapeColors::new(Color::rgba_u8(80, 155, 199, 100)),
+                DrawMode::Stroke(StrokeOptions::default().with_line_width(6.0)),
+                Transform::from_translation(Vec3::new(0.0, y as f32 * 100.0, 0.0)),
+            ));
+        commands
+            .spawn_bundle(GeometryBuilder::build_as(
+                &shapes::Polygon {
                     points: vec![(-2000.0, 0.0).into(), (2000.0, 0.0).into()],
                     closed: false,
-                }
-                .draw(
-                    material.clone(),
-                    TessellationMode::Stroke(StrokeOptions::default().with_line_width(2.0)),
-                    Transform::from_translation(Vec3::new(0.0, y as f32 * 100.0, 0.1)),
-                ),
-            );
+                },
+                ShapeColors::new(Color::rgb_u8(80, 155, 199)),
+                DrawMode::Stroke(StrokeOptions::default().with_line_width(2.0)),
+                Transform::from_translation(Vec3::new(0.0, y as f32 * 100.0, 0.1)),
+            ));
     }
 }
 
 fn camera_tracking(
-    player_query: Query<&Transform, With<Steering>>,
+    player_query: Query<&Transform, (With<Steering>, Without<Camera>)>,
     mut camera_query: Query<&mut Transform, With<Camera>>,
 ) {
     if let (Some(player), Some(mut camera)) =
@@ -406,13 +413,12 @@ fn camera_tracking(
 
 struct EngineIndicator(usize);
 fn maintain_engine_indicators(
-    mut reader: Local<EventReader<EngineEvent>>,
-    events: Res<Events<EngineEvent>>,
+    mut events: EventReader<EngineEvent>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     engine_query: Query<&Children>,
     indicator_query: Query<(&Handle<ColorMaterial>, &EngineIndicator)>,
 ) {
-    for event in reader.iter(&events) {
+    for event in events.iter() {
         if let Ok(engine_children) = engine_query.get(event.engine().0) {
             for child in engine_children.iter() {
                 if let Ok((handle, indicator)) = indicator_query.get(*child) {

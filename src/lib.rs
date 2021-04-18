@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
+use bevy::app::Events;
 use bevy_rapier2d::{
     physics::{RapierConfiguration, RigidBodyHandleComponent},
     rapier::{
@@ -14,17 +15,25 @@ use bevy_rapier2d::{
 
 const CACHE_COARSENESS: f32 = std::f32::consts::PI / 1000.0;
 
+#[derive(Debug, Hash, PartialEq, Eq, Clone,SystemLabel)]
+pub enum SystemLabels {
+    InvalidateCaches,
+    FireEngines,
+}
+
+#[derive(Default)]
 pub struct ThrusterPlugin;
+
 impl Plugin for ThrusterPlugin {
     fn build(&self, app: &mut AppBuilder) {
         if !app.world().contains_resource::<ThrustScale>() {
             app.world_mut().insert_resource(ThrustScale::default());
         }
+        let cache_system = invalidate_caches.system().label(SystemLabels::InvalidateCaches);
         app.register_type::<EngineSet>()
             .add_event::<EngineEvent>()
-            .add_stage_after(CoreStage::Update, "update_steering", SystemStage::parallel())
-            .add_system_to_stage("update_steering", invalidate_caches.system())
-            .add_system_to_stage("update_steering", fire_engines.system());
+            .add_system_to_stage(CoreStage::PostUpdate, cache_system)
+            .add_system(fire_engines.system().label(SystemLabels::FireEngines).after(SystemLabels::InvalidateCaches));
     }
 }
 

@@ -9,7 +9,7 @@ pub(crate) fn estimate_acceleration(
     engines: &[(Vec2, Vec2, f32, (Entity, usize))],
     firing: &[f32],
 ) -> (Vec2, f32) {
-    let mut acceleration = Vec2::zero();
+    let mut acceleration = Vec2::ZERO;
     let mut angular_acceleration = 0.0;
 
     for ((engine_position, thrust_vector, max_thrust, _), firing_amount) in engines.iter().zip(firing) {
