@@ -184,14 +184,14 @@ fn fire_engines(
     mut engine_events: ResMut<Events<EngineEvent>>,
     mut parent_query: Query<(
         Entity,
-        &GlobalTransform,
+        &mut GlobalTransform,
         &mut Steering,
         &RigidBodyHandleComponent,
         Option<&Children>,
     )>,
     engine_query: Query<(&Transform, &EngineSet)>,
 ) {
-    for (parent, parent_transform, mut steering, body_handle, maybe_children) in
+    for (parent, mut parent_transform, mut steering, body_handle, maybe_children) in
         parent_query.iter_mut()
     {
         let mut just_fired = Vec::with_capacity(steering.currently_firing.len());
@@ -245,7 +245,6 @@ fn fire_engines(
                 {
                     if *firing > 0.0 {
                         just_fired.push((event_key.0, event_key.1, *firing));
-                        let mut parent_transform = parent_transform;
                         parent_transform.translation /= rapier_config.scale;
                         let p = parent_transform.mul_vec3(position.extend(0.0));
                         let p = Point::new(p.x, p.y);
